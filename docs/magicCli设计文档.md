@@ -11,23 +11,24 @@
 ```text
 magicCli/
 ├── Makefile                    # 自动化构建脚本
-├── go.mod                      # 模块路径: magicCli
+├── go.mod                     # 模块路径: github.com/muidea/magicCli
+├── vendor/                    # 依赖vendor目录
 ├── application/
-│   └── magicCli/               # CLI 应用入口
+│   └── magicCli/              # CLI 应用入口
 │       └── cmd/
-│           └── main.go         # 参数解析与路由分发
+│           └── main.go        # 参数解析与路由分发
 ├── internal/
 │   └── modules/
 │       └── kernel/
-│           └── executor/       # 执行器内核模块
-│               ├── module.go   # 接口定义与工厂
-│               └── biz/        # 核心驱动实现
+│           └── executor/      # 执行器内核模块
+│               ├── module.go  # 接口定义与工厂
+│               └── biz/       # 核心驱动实现
 │                   ├── local.go
 │                   ├── docker.go
 │                   └── ssh.go
 └── pkg/
     └── util/
-        └── system.go           # 公共系统工具
+        └── system.go          # 公共系统工具
 ```
 
 ### 2.2 路由识别规则
@@ -81,9 +82,10 @@ package biz
 
 import (
 	"context"
-	"magicCli/pkg/util"
 	"os"
 	"os/exec"
+
+	"github.com/muidea/magicCli/pkg/util"
 )
 
 type DockerExecutor struct {
@@ -113,19 +115,25 @@ package biz
 
 import (
 	"context"
-	"magicCli/pkg/util"
+	"fmt"
 	"os"
 	"os/exec"
+
+	"github.com/muidea/magicCli/pkg/util"
 )
 
 type SSHExecutor struct {
 	Host string
+	Port int
 }
 
 func (e *SSHExecutor) Execute(ctx context.Context, shellCmd string) error {
 	args := []string{"-q"}
 	if util.IsTTY() {
 		args = append(args, "-t") // 支持交互式如 top/vi
+	}
+	if e.Port != 22 {
+		args = append(args, "-p", fmt.Sprintf("%d", e.Port))
 	}
 	args = append(args, e.Host, "--", shellCmd)
 
@@ -143,22 +151,23 @@ package executor
 
 import (
 	"context"
-	"magicCli/internal/modules/kernel/executor/biz"
 	"strings"
+
+	"github.com/muidea/magicCli/internal/modules/kernel/executor/biz"
 )
 
 type Executor interface {
 	Execute(ctx context.Context, shellCmd string) error
 }
 
-func NewExecutor(target, user string) Executor {
+func NewExecutor(target, user string, port int) Executor {
 	target = strings.ToLower(target)
 	if target == "" || target == "local" || target == "host" {
 		return &biz.LocalExecutor{}
 	}
 	// 识别 SSH: 包含 @ 或 . (IP/域名格式)
 	if strings.Contains(target, "@") || strings.Contains(target, ".") {
-		return &biz.SSHExecutor{Host: target}
+		return &biz.SSHExecutor{Host: target, Port: port}
 	}
 	// 默认 Docker
 	return &biz.DockerExecutor{ContainerID: target, User: user}
@@ -177,22 +186,24 @@ import (
 	"os/exec"
 	"strings"
 
-	"magicCli/internal/modules/kernel/executor"
+	"github.com/muidea/magicCli/internal/modules/kernel/executor"
 	"github.com/spf13/cobra"
 )
 
 func main() {
 	var target string
 	var user string
+	var port int
 
 	var rootCmd = &cobra.Command{
 		Use:   "magicCli [flags] -- <command>",
 		Short: "magicCli: 一键跨环境执行工具",
-		Example: "  magicCli -t my-nginx 'ls -l'\n  magicCli -t root@10.0.0.1 uptime",
-		Args:  cobra.MinimumNArgs(1),
+		Example: `  magicCli -t my-nginx 'ls -l'
+  magicCli -t root@10.0.0.1 -p 2222 uptime`,
+		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			shellCmd := strings.Join(args, " ")
-			execInst := executor.NewExecutor(target, user)
+			execInst := executor.NewExecutor(target, user, port)
 
 			err := execInst.Execute(cmd.Context(), shellCmd)
 			if err != nil {
@@ -207,6 +218,7 @@ func main() {
 
 	rootCmd.Flags().StringVarP(&target, "target", "t", "local", "执行目标 (local/容器ID/远程Host)")
 	rootCmd.Flags().StringVarP(&user, "user", "u", "", "指定用户 (仅限Docker)")
+	rootCmd.Flags().IntVarP(&port, "port", "p", 22, "SSH 端口")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -227,7 +239,7 @@ build:
 	go build -o bin/$(APP_NAME) $(SRC)
 
 install:
-	cp bin/$(APP_NAME) /usr/local/bin/
+	cp bin/$(APP_NAME) ~/.local/bin/
 
 clean:
 	rm -rf bin/
@@ -241,9 +253,10 @@ clean:
 | 测试项 | 执行指令 | 预期结果 |
 | :--- | :--- | :--- |
 | **本地测试** | `./magicCli "echo $USER"` | 输出当前宿主机用户名 |
-| **管道测试** | `./magicCli "ls -l | wc -l"` | 正确统计文件数量 |
+| **管道测试** | `./magicCli "ls -l \| wc -l"` | 正确统计文件数量 |
 | **Docker测试** | `./magicCli -t my-cnt "cat /etc/hostname"` | 输出容器的 Hostname |
 | **SSH测试** | `./magicCli -t user@localhost "uptime"` | 成功通过 SSH 获取运行时间 |
+| **SSH端口测试** | `./magicCli -t user@host -p 2222 "uptime"` | 通过指定端口 SSH 连接 |
 | **交互式测试** | `./magicCli -t my-cnt top` | 进入 top 实时监控界面，按 Q 退出 |
 | **错误透传** | `./magicCli "exit 42" ; echo $?` | 屏幕打印 `42` |
 

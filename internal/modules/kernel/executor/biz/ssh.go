@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -10,12 +11,16 @@ import (
 
 type SSHExecutor struct {
 	Host string
+	Port int
 }
 
 func (e *SSHExecutor) Execute(ctx context.Context, shellCmd string) error {
 	args := []string{"-q"}
 	if util.IsTTY() {
 		args = append(args, "-t")
+	}
+	if e.Port != 22 {
+		args = append(args, "-p", fmt.Sprintf("%d", e.Port))
 	}
 	args = append(args, e.Host, "--", shellCmd)
 

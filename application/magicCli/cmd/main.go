@@ -10,9 +10,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	version   string
+	gitCommit string
+	buildDate string
+)
+
 func main() {
 	var target string
 	var user string
+	var port int
 
 	var rootCmd = &cobra.Command{
 		Use:   "magicCli [flags] -- <command>",
@@ -22,7 +29,7 @@ func main() {
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			shellCmd := strings.Join(args, " ")
-			execInst := executor.NewExecutor(target, user)
+			execInst := executor.NewExecutor(target, user, port)
 
 			err := execInst.Execute(cmd.Context(), shellCmd)
 			if err != nil {
@@ -35,8 +42,20 @@ func main() {
 		},
 	}
 
+	var versionCmd = &cobra.Command{
+		Use:   "version",
+		Short: "显示版本信息",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("Version:   %s\n", version)
+			fmt.Printf("GitCommit: %s\n", gitCommit)
+			fmt.Printf("BuildDate: %s\n", buildDate)
+		},
+	}
+
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.Flags().StringVarP(&target, "target", "t", "local", "执行目标 (local/容器ID/远程Host)")
 	rootCmd.Flags().StringVarP(&user, "user", "u", "", "指定用户 (仅限Docker)")
+	rootCmd.Flags().IntVarP(&port, "port", "p", 22, "SSH 端口")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
