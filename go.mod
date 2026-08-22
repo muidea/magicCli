@@ -1,6 +1,8 @@
 module github.com/muidea/magicCli
 
-go 1.24.13
+go 1.26.0
+
+toolchain go1.26.7
 
 require github.com/spf13/cobra v1.10.2
 
